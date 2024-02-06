@@ -40,3 +40,23 @@ def noise_estimation_loss(model, x_0, ts, noise_scheduler,x_cond=None):
         output = model(x,x_cond, ts)
 
     return (e - output).square().mean()
+
+# loss for sde
+def sde_score_matching_loss(model, x, sde, eps=1e-5):
+  """The loss function for training score-based generative models.
+
+  Args:
+    model: A PyTorch model instance that represents a 
+      time-dependent score-based model.
+    x: A mini-batch of training data.    
+    marginal_prob_std: A function that gives the standard deviation of 
+      the perturbation kernel.
+    eps: A tolerance value for numerical stability.
+  """
+  random_t = torch.rand(x.shape[0], device=x.device) * (1. - eps) + eps  
+  z = torch.randn_like(x)
+  _,std = sde.marginal_prob(x,random_t)
+  perturbed_x = x + z * std[:, None]
+  score = model(perturbed_x, random_t)
+  loss = torch.mean(torch.sum((score* std[:, None] + z)**2, dim=(1)))
+  return loss
