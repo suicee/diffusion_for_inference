@@ -68,8 +68,9 @@ class ode_likelihood():
             z = from_flattened_numpy(zp[:-shape[0]], shape).to(data.device).type(torch.float32)
             delta_logp = from_flattened_numpy(zp[-shape[0]:], (shape[0],)).to(data.device).type(torch.float32)
             prior_logp = self.sde.prior_logp(z)
+            totoal_logp = prior_logp + delta_logp
             bpd = -(prior_logp + delta_logp) / np.log(2)
             N = np.prod(shape[1:])
             bpd = bpd / N + 8.
 
-        return bpd
+        return bpd,totoal_logp

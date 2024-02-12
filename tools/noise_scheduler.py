@@ -29,10 +29,10 @@ class noise_scheduler():
         one_minus_alphas_bar_sqrt = torch.sqrt(1 - alphas_prod)
 
         self.sigmas=torch.sqrt(betas)
-        # self.alphas=alphas
-        # self.alphas_prod=alphas_prod
+        self.alphas=alphas
+        self.alphas_prod=alphas_prod
         self.alphas_bar_sqrt=alphas_bar_sqrt
-        # self.one_minus_alphas_bar_log=one_minus_alphas_bar_log
+        self.one_minus_alphas_bar_log=one_minus_alphas_bar_log
         self.one_minus_alphas_bar_sqrt=one_minus_alphas_bar_sqrt
 
     @staticmethod
