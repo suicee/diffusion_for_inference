@@ -11,6 +11,13 @@ def extract(input, t, x):
 
 class noise_scheduler():
     def __init__(self, sigma_start, sigma_end, n_steps,var_norm=True,schedule='linear'):
+        '''
+        var norm is the flag to use the variance normalization or not(corresponding to DDPM and NCSN)
+        however note that for current implementation, sigma have different meaning for var_norm=True and var_norm=False
+        for var_norm=True, sigma is the std of the conditional distribution of every step
+        for var_norm=False, sigma is the std of the marginal distribution of every step
+        this should be unified in the future
+        '''
         self.sigma_start = sigma_start
         self.sigma_end = sigma_end
         self.n_steps = n_steps
