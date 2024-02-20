@@ -1,5 +1,6 @@
 import torch
 import math
+import numpy as np
 
 def extract(input, t, x):
     shape = x.shape
@@ -119,6 +120,68 @@ class ddpm_sampler():
             x_seq.append(cur_x)
         return x_seq
 
+class ddim_sampler():
+    def __init__(self, model, betas, eta,tau=1, device='cuda', scheduling = 'uniform'):
+        self.model = model
+        self.model.eval()
+        self.model.to(device)
+
+        self.betas = betas
+        self.alphas = 1 - self.betas
+        self.alpha_bars = torch.cumprod(self.alphas, 0).to(device=device)
+        self.alpha_prev_bars = torch.cat([torch.Tensor([1]).to(device=device), self.alpha_bars[:-1]])
+
+        self.sigmas = torch.sqrt((1 - self.alpha_prev_bars) / (1 - self.alpha_bars)) * torch.sqrt(1 - (self.alpha_bars / self.alpha_prev_bars))
+
+        self.device=device
+        self.eta = eta
+        self.tau = tau
+        self.scheduling = scheduling
+    
+    def _get_process_scheduling(self, reverse = True):
+        if self.scheduling == 'uniform':
+            diffusion_process = list(range(0, len(self.alpha_bars), self.tau)) + [len(self.alpha_bars)-1]
+        elif self.scheduling == 'exp':
+            diffusion_process = (np.linspace(0, np.sqrt(len(self.alpha_bars)* 0.8), self.tau)** 2)
+            diffusion_process = [int(s) for s in list(diffusion_process)] + [len(self.alpha_bars)-1]
+        else:
+            assert 'Not Implementation'
+            
+        
+        diffusion_process = zip(reversed(diffusion_process[:-1]), reversed(diffusion_process[1:])) if reverse else zip(diffusion_process[1:], diffusion_process[:-1])
+        return diffusion_process
+
+    def one_denoise_step(self, x,prev_idx, idx,sample_cond=None):
+
+        self.model.eval()
+        noise = torch.zeros_like(x) if idx == 0 else torch.randn_like(x)
+        labels = torch.ones(x.shape[0]).long().to(self.device) * idx
+        if sample_cond is not None:
+            predict_epsilon = self.model(x, labels, sample_cond)
+        else:
+            predict_epsilon = self.model(x, labels)
+
+        sigma = self.sigmas[idx] * self.eta
+        
+        predicted_x0 = torch.sqrt(self.alpha_bars[prev_idx]) * (x - torch.sqrt(1 - self.alpha_bars[idx]) * predict_epsilon) / torch.sqrt(self.alpha_bars[idx])
+        direction_pointing_to_xt = torch.sqrt(1 - self.alpha_bars[prev_idx] - sigma**2 ) * predict_epsilon
+        x = predicted_x0 + direction_pointing_to_xt + sigma * noise
+
+        return x
+
+    def loop_sample(self, shape,sample_cond=None,only_final=False):
+        cur_x = torch.randn(shape).to(device=self.device)
+        diffusion_process = self._get_process_scheduling(reverse = True)
+        sampling_list = [cur_x]
+        for prev_idx, idx in diffusion_process:
+            cur_x = self.one_denoise_step(cur_x,prev_idx, idx,sample_cond=sample_cond)
+            if not only_final:
+                sampling_list.append(cur_x)
+        
+        return cur_x if only_final else torch.stack(sampling_list)
+
+
+        
 
 
 # def annealed_langevin_dynamic(sigma_min, sigma_max, n_steps, annealed_step, score_fn,init_point, device,sample_cond=None, eps=1e-1, only_final=False):
