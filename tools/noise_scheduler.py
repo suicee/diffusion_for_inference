@@ -1,5 +1,8 @@
 import torch
 from matplotlib import pyplot as plt
+import logging
+
+logging.basicConfig(level=logging.INFO)
 
 
 
@@ -10,37 +13,47 @@ def extract(input, t, x):
     return out.reshape(*reshape)
 
 class noise_scheduler():
-    def __init__(self, sigma_start, sigma_end, n_steps,var_norm=True,schedule='linear'):
+    def __init__(self, beta_start, beta_end, n_steps,var_norm=True,schedule='linear'):
         '''
-        var norm is the flag to use the variance normalization or not(corresponding to DDPM and NCSN)
-        however note that for current implementation, sigma have different meaning for var_norm=True and var_norm=False
-        for var_norm=True, sigma is the std of the conditional distribution of every step
-        for var_norm=False, sigma is the std of the marginal distribution of every step
-        this should be unified in the future
+        beta_start : beta value from t=0 to t=1
+        beta_end   : beta value from t=T-1 to t=T
+        n_steps    : number of T
+        var_norm   : If True, use variance normalization(DDPM), else do not use variance normalization (NCSN)
+        schedule   : how to interpolate beta from beta_start to beta_end
         '''
-        self.sigma_start = sigma_start
-        self.sigma_end = sigma_end
+
+        self.beta_start = beta_start
+        self.beta_end = beta_end
         self.n_steps = n_steps
         self.schedule = schedule
         self.var_norm = var_norm
 
         betas=self.make_beta_schedule(schedule=self.schedule,
                                              n_timesteps=self.n_steps, 
-                                             start=self.sigma_start, 
-                                             end=self.sigma_end)
+                                             start=self.beta_start, 
+                                             end=self.beta_end)
 
         alphas = 1 - betas
-        alphas_prod = torch.cumprod(alphas, 0)
-        alphas_bar_sqrt = torch.sqrt(alphas_prod)
-        one_minus_alphas_bar_log = torch.log(1 - alphas_prod)
-        one_minus_alphas_bar_sqrt = torch.sqrt(1 - alphas_prod)
+        alphas_bar = torch.cumprod(alphas, 0)
+        alphas_bar_sqrt = torch.sqrt(alphas_bar)
+        # one_minus_alphas_bar_log = torch.log(1 - alphas_bar)
+        one_minus_alphas_bar_sqrt = torch.sqrt(1 - alphas_bar)
 
         self.sigmas=torch.sqrt(betas)
         self.alphas=alphas
-        self.alphas_prod=alphas_prod
+        self.betas=betas
+        self.alphas_bar=alphas_bar
         self.alphas_bar_sqrt=alphas_bar_sqrt
-        self.one_minus_alphas_bar_log=one_minus_alphas_bar_log
+        # self.one_minus_alphas_bar_log=one_minus_alphas_bar_log
         self.one_minus_alphas_bar_sqrt=one_minus_alphas_bar_sqrt
+
+        #std of the conditional distribution p(x_t|x_0)
+        if self.var_norm:
+            #for ddpm x_t|x_0 ~ N(alphas_bar_sqrt*x_0,1-alphas_bar)
+            self.marg_std = self.one_minus_alphas_bar_sqrt
+        else:
+            #for ncsn x_t|x_0 ~ N(0,(beta1+...+betat))
+            self.marg_std = torch.sqrt(torch.cumsum(self.betas, 0))
 
     @staticmethod
     def make_beta_schedule(schedule='linear', n_timesteps=1000, start=1e-5, end=1e-2):
@@ -55,31 +68,65 @@ class noise_scheduler():
 
     
     def forward_sample(self,x_0, t):
+        '''
+        diffusion process
+        x_0 : initial data
+        t   : time step
+
+        return : x_t
+        '''
         noise = torch.randn_like(x_0).to(x_0.device)
         with torch.no_grad():
             if self.var_norm:
+                #for ddpm x_t|x_0 ~ N(alphas_bar_sqrt*x_0,1-alphas_bar), x_t = alphas_bar_sqrt*x_0 + sqrt(1-alphas_bar)*noise
                 alphas_t = extract(self.alphas_bar_sqrt, t, x_0).to(x_0.device)
                 alphas_1_m_t = extract(self.one_minus_alphas_bar_sqrt, t, x_0).to(x_0.device)
-                return alphas_t * x_0 + alphas_1_m_t * noise,noise
+                return alphas_t * x_0 + alphas_1_m_t * noise#,noise
             else:
-                used_sigmas=extract(self.sigmas,t,x_0).to(x_0.device)
-                return x_0+used_sigmas*noise,used_sigmas
+                #for ncsn x_t|x_0 ~ N(0,(beta1+...+betat)), x_t = x_0 + sqrt(betasum)*noise
+                used_sigmas=extract(self.marg_std,t,x_0).to(x_0.device)
+                return x_0+used_sigmas*noise#,used_sigmas
+            
+    def marginal_prob(self, x_0, t):
+        '''
+        x_0 : data
+        t : time step
 
-    def plot_sigmas(self):
-        plt.plot(self.sigmas)
+        return : mean, std of p(x_t|x_0)
+        '''
+        if self.var_norm:
+            #for ddpm x_t|x_0 ~ N(alphas_bar_sqrt*x_0,1-alphas_bar)
+            mean = extract(self.alphas_bar_sqrt, t, x_0).to(x_0.device) * x_0
+            std = extract(self.marg_std, t, x_0).to(x_0.device)
+            return mean, std
+        else:
+            #for ncsn x_t|x_0 ~ N(0,sqrt(beta1+...+betat))
+            mean = x_0
+            std = extract(self.marg_std, t, x_0).to(x_0.device)
+            return mean, std
+
+    def plot_marginal_std(self):
+        '''
+        plt the std of p(x_t|x_0)
+        if var_norm is True,plot the relative std, else plot the absolute std
+        '''
+        if self.var_norm:
+            plt.plot(self.marg_std/self.alphas_bar_sqrt)
+        else:
+            plt.plot(self.marg_std)
         plt.show()
     
     def visualize_noise(self,x0,num_display=10):
 
         if self.n_steps<num_display:
             num_display=self.n_steps
-
+        
         ##uniformly choose num_display time steps from self.n_steps
         display_time_steps=torch.linspace(0,self.n_steps-1,num_display).long()
 
         fig, axs = plt.subplots(1, num_display, figsize=(3*num_display, 3))
         for i in range(num_display):
-            q_i,_ = self.forward_sample(x0, torch.tensor([display_time_steps[i]]))
+            q_i= self.forward_sample(x0, torch.tensor([display_time_steps[i]]))
             axs[i].scatter(q_i[:, 0], q_i[:, 1], s=10);
             axs[i].set_axis_off(); axs[i].set_title('$q(\mathbf{x}_{'+str(display_time_steps[i].item())+'})$')
 
