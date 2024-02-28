@@ -171,7 +171,7 @@ class ddim_sampler():
         noise = torch.zeros_like(x) if idx == 0 else torch.randn_like(x)
         labels = torch.ones(x.shape[0]).long().to(self.device) * idx
         if sample_cond is not None:
-            score = self.score_fn(x, labels, sample_cond)
+            score = self.score_fn(x, sample_cond, labels)
         else:
             score = self.score_fn(x, labels)
 

@@ -128,7 +128,8 @@ class noise_scheduler():
         for i in range(num_display):
             q_i= self.forward_sample(x0, torch.tensor([display_time_steps[i]]))
             axs[i].scatter(q_i[:, 0], q_i[:, 1], s=10);
-            axs[i].set_axis_off(); axs[i].set_title('$q(\mathbf{x}_{'+str(display_time_steps[i].item())+'})$')
+            # axs[i].set_axis_off(); 
+            axs[i].set_title('$q(\mathbf{x}_{'+str(display_time_steps[i].item())+'})$');
 
 
 

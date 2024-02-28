@@ -111,7 +111,7 @@ class score_model_mlp(nn.Module):
         x = self.output(x)
         return x
     
-class score_model_mlp_cond():
+class score_model_mlp_cond(nn.Module):
     def __init__(self, input_dim, cond_dim, n_steps, hidden=[128,128]):
         '''
         current model
