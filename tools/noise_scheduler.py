@@ -1,7 +1,7 @@
 import torch
 from matplotlib import pyplot as plt
 import logging
-
+import math
 logging.basicConfig(level=logging.INFO)
 
 
@@ -11,6 +11,44 @@ def extract(input, t, x):
     out = torch.gather(input, 0, t.to(input.device))
     reshape = [t.shape[0]] + [1] * (len(shape) - 1)
     return out.reshape(*reshape)
+
+def betas_for_alpha_bar(
+    num_diffusion_timesteps,
+    max_beta=0.999,
+    alpha_transform_type="cosine",
+):
+    """
+    codes from diffusers package that implements the beta schedule in http://arxiv.org/abs/2102.09672
+
+    Args:
+        num_diffusion_timesteps (`int`): the number of betas to produce.
+        max_beta (`float`): the maximum beta to use; use values lower than 1 to
+                     prevent singularities.
+        alpha_transform_type (`str`, *optional*, default to `cosine`): the type of noise schedule for alpha_bar.
+                     Choose from `cosine` or `exp`
+
+    Returns:
+        betas (`np.ndarray`): the betas used by the scheduler to step the model outputs
+    """
+    if alpha_transform_type == "cosine":
+
+        def alpha_bar_fn(t):
+            return math.cos((t + 0.008) / 1.008 * math.pi / 2) ** 2
+
+    elif alpha_transform_type == "exp":
+
+        def alpha_bar_fn(t):
+            return math.exp(t * -12.0)
+
+    else:
+        raise ValueError(f"Unsupported alpha_tranform_type: {alpha_transform_type}")
+
+    betas = []
+    for i in range(num_diffusion_timesteps):
+        t1 = i / num_diffusion_timesteps
+        t2 = (i + 1) / num_diffusion_timesteps
+        betas.append(min(1 - alpha_bar_fn(t2) / alpha_bar_fn(t1), max_beta))
+    return torch.tensor(betas, dtype=torch.float32)
 
 class noise_scheduler():
     def __init__(self, beta_start, beta_end, n_steps,var_norm=True,schedule='linear'):
@@ -64,6 +102,9 @@ class noise_scheduler():
         elif schedule == "sigmoid":
             betas = torch.linspace(-6, 6, n_timesteps)
             betas = torch.sigmoid(betas) * (end - start) + start
+        elif schedule == "cosine":
+            # Glide cosine schedule
+            betas = betas_for_alpha_bar(n_timesteps)
         return betas
 
     

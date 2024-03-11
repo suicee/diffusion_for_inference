@@ -11,11 +11,12 @@ def plot_gradient(score_fn,xrange,yrange,n=20,t=0,device='cuda',ref_data=None,sc
     z = np.stack([x, y], axis=-1)
     z = torch.tensor(z, dtype=torch.float32).view(-1, 2).to(device)
     labels = torch.ones(z.shape[0]).long().to(device)*t
-    z_cond = torch.tensor(np.repeat(score_cond[None,:],z.shape[0],axis=0),dtype=torch.float32).to(device)
+    
     with torch.no_grad():
         if score_cond is None:
             scores = score_fn(z, labels).detach().cpu().numpy()
         else:
+            z_cond = torch.tensor(np.repeat(score_cond[None,:],z.shape[0],axis=0),dtype=torch.float32).to(device)
             scores = score_fn(z,z_cond, labels).detach().cpu().numpy()
     scores_norm = np.linalg.norm(scores, axis=-1, ord=2, keepdims=True)
     scores_log1p = scores / (scores_norm + 1e-9) * np.log1p(scores_norm)
